@@ -1,0 +1,130 @@
+import sys
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QTableWidget, QTableWidgetItem, QPushButton, 
+                             QLineEdit, QSpinBox, QHeaderView, QMessageBox)
+from PyQt5.QtCore import Qt
+import sqlite3
+
+class NotesApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.init_db()
+        self.init_ui()
+        
+    def init_db(self):
+        self.conn = sqlite3.connect("notes.db")
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                priority INTEGER DEFAULT 1
+            )
+        """)
+        self.conn.commit()
+        
+    def init_ui(self):
+        self.setWindowTitle("Приложение для заметок")
+        self.setGeometry(100, 100, 800, 600)
+        
+        layout = QVBoxLayout()
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["ID", "Note", "Prioritet", "Удаление"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.update_table()
+        
+        btn_layout = QHBoxLayout()
+        
+        self.note_input = QLineEdit()
+        self.note_input.setPlaceholderText("Введите текст заметки")
+        
+        self.priority_input = QSpinBox()
+        self.priority_input.setRange(1, 5)
+        self.priority_input.setValue(1)
+        
+        self.add_btn = QPushButton("Добавление")
+        self.add_btn.clicked.connect(self.add_note)
+        
+        self.update_btn = QPushButton("Изменение")
+        self.update_btn.clicked.connect(self.update_note)
+        
+        self.refresh_btn = QPushButton("Отображение")
+        self.refresh_btn.clicked.connect(self.update_table)
+        
+        btn_layout.addWidget(self.note_input)
+        btn_layout.addWidget(self.priority_input)
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.update_btn)
+        btn_layout.addWidget(self.refresh_btn)
+        
+        layout.addWidget(self.table)
+        layout.addLayout(btn_layout)
+        
+        self.setLayout(layout)
+    
+    def update_table(self):
+        self.cursor.execute("SELECT id, text, priority FROM notes ORDER BY priority DESC, id")
+        notes = self.cursor.fetchall()
+        
+        self.table.setRowCount(len(notes))
+        
+        for row, (note_id, text, priority) in enumerate(notes):
+            self.table.setItem(row, 0, QTableWidgetItem(str(note_id)))
+            self.table.setItem(row, 1, QTableWidgetItem(text))
+            self.table.setItem(row, 2, QTableWidgetItem(str(priority)))
+            delete_btn = QPushButton("Удалить")
+            delete_btn.clicked.connect(lambda _, id=note_id: self.delete_note(id))
+            self.table.setCellWidget(row, 3, delete_btn)
+    
+    def add_note(self):
+        text = self.note_input.text().strip()
+        priority = self.priority_input.value()
+        
+        if not text:
+            QMessageBox.warning(self, "Ошибка", "Текст заметки не может быть пустым")
+            return
+            
+        self.cursor.execute("INSERT INTO notes (text, priority) VALUES (?, ?)", (text, priority))
+        self.conn.commit()
+        self.note_input.clear()
+        self.update_table()
+    
+    def update_note(self):
+        selected = self.table.currentRow()
+        if selected == -1:
+            QMessageBox.warning(self, "Ошибка", "Выберите заметку для изменения")
+            return
+            
+        note_id = int(self.table.item(selected, 0).text())
+        new_text = self.note_input.text().strip()
+        new_priority = self.priority_input.value()
+        
+        if not new_text:
+            QMessageBox.warning(self, "Ошибка", "Текст заметки не может быть пустым")
+            return
+            
+        self.cursor.execute(
+            "UPDATE notes SET text = ?, priority = ? WHERE id = ?",
+            (new_text, new_priority, note_id)
+        )
+        self.conn.commit()
+        self.note_input.clear()
+        self.update_table()
+    
+    def delete_note(self, note_id):
+        self.cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        self.conn.commit()
+        self.update_table()
+    
+    def closeEvent(self, event):
+        self.conn.close()
+        event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = NotesApp()
+    window.show()
+    sys.exit(app.exec_())
